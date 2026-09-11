@@ -171,6 +171,26 @@
     z-index:50;
   }
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  canvas.zoomable{cursor:pointer;}
+  .zoomhint{color:var(--ink-faint); font-size:11px; margin:8px 0 0; text-align:center;}
+
+  .chartModal{
+    position:fixed; inset:0; background:var(--night-deep); z-index:100;
+    display:none; flex-direction:column; padding:16px;
+  }
+  .chartModal.open{display:flex;}
+  .chartModal .modalHead{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
+  }
+  .chartModal .modalHead h3{
+    font-family:'Fraunces',serif; font-weight:600; font-size:18px; margin:0; color:var(--ink);
+  }
+  .chartModal .closeBtn{
+    background:var(--card); border:1px solid var(--card-line); color:var(--ink);
+    width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer;
+  }
+  .chartModal canvas{flex:1; width:100%;}
 </style>
 </head>
 <body>
@@ -213,7 +233,7 @@
 
     <table class="recap" id="recapTable">
       <thead>
-        <tr><th>Jour</th><th>🤱🍼 Tétées/biberons</th><th>ml</th><th>💧 Pipi</th><th>💩 Caca</th></tr>
+        <tr><th>Jour</th><th>🤱 Tétées</th><th>🍼 Biberons</th><th>ml</th><th>💧</th><th>💩</th></tr>
       </thead>
       <tbody id="recapBody"></tbody>
     </table>
@@ -227,7 +247,8 @@
       <span><i class="dot" style="background:#F5C56B"></i>Médiane (P50)</span>
       <span><i class="dot" style="background:#EE8B8B"></i>Milo</span>
     </div>
-    <canvas id="chartWeight" height="220"></canvas>
+    <canvas id="chartWeight" height="220" class="zoomable"></canvas>
+    <p class="zoomhint">Touche le graphique pour l'agrandir</p>
   </div>
 
   <div class="card">
@@ -238,7 +259,20 @@
       <span><i class="dot" style="background:#F5C56B"></i>Médiane (P50)</span>
       <span><i class="dot" style="background:#7FD1C0"></i>Milo</span>
     </div>
-    <canvas id="chartHeight" height="220"></canvas>
+    <canvas id="chartHeight" height="220" class="zoomable"></canvas>
+    <p class="zoomhint">Touche le graphique pour l'agrandir</p>
+  </div>
+
+  <div class="card">
+    <h2>Périmètre crânien</h2>
+    <p class="sub">Repères OMS pour un garçon (courbes utilisées par l'ONE) — à titre indicatif.</p>
+    <div class="legend">
+      <span><i class="dot" style="background:#F5C56B55"></i>P3 – P97</span>
+      <span><i class="dot" style="background:#F5C56B"></i>Médiane (P50)</span>
+      <span><i class="dot" style="background:#8EC7F0"></i>Milo</span>
+    </div>
+    <canvas id="chartHead" height="220" class="zoomable"></canvas>
+    <p class="zoomhint">Touche le graphique pour l'agrandir</p>
   </div>
 
   <div class="card">
@@ -257,6 +291,10 @@
         <label for="fHeight">Taille (cm)</label>
         <input type="number" id="fHeight" step="0.1" min="0" placeholder="ex. 55.5">
       </div>
+      <div class="full">
+        <label for="fHead">Périmètre crânien (cm)</label>
+        <input type="number" id="fHead" step="0.1" min="0" placeholder="ex. 36.5">
+      </div>
       <button type="submit" class="add">Ajouter</button>
     </form>
 
@@ -270,6 +308,14 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="chartModal" id="chartModal">
+  <div class="modalHead">
+    <h3 id="modalTitle">Graphique</h3>
+    <button class="closeBtn" id="closeModal">✕</button>
+  </div>
+  <canvas id="chartModalCanvas"></canvas>
+</div>
 
 <script>
 /* ---------- Réglages ---------- */
@@ -286,6 +332,11 @@ const REF_HEIGHT = [
   [0,46.1,49.9,53.7],[1,50.8,54.7,58.6],[2,54.4,58.4,62.4],[3,57.3,61.4,65.5],
   [4,59.7,63.9,68.0],[5,61.7,65.9,70.1],[6,63.3,67.6,71.9],[9,67.5,72.0,76.5],
   [12,71.0,75.7,80.5],[15,74.1,79.1,84.2],[18,76.9,82.3,87.7],[21,79.4,85.1,90.9],[24,81.7,87.8,93.9]
+];
+const REF_HEAD = [
+  [0,32.5,34.5,36.5],[1,35.0,37.3,39.5],[2,37.0,39.1,41.3],[3,38.5,40.5,42.6],
+  [4,39.7,41.6,43.7],[5,40.7,42.6,44.7],[6,41.5,43.3,45.5],[9,43.2,45.0,47.0],
+  [12,44.4,46.1,48.3],[15,45.3,47.0,49.2],[18,46.0,47.7,49.9],[21,46.6,48.3,50.5],[24,46.9,48.6,50.8]
 ];
 
 /* ---------- Stockage ---------- */
@@ -364,7 +415,8 @@ function renderHistory(){
     const dateFmt = pad(d.getDate()) + '/' + pad(d.getMonth()+1) + '/' + d.getFullYear();
     const vals = [
       e.weight != null ? e.weight + ' kg' : null,
-      e.height != null ? e.height + ' cm' : null
+      e.height != null ? e.height + ' cm' : null,
+      e.head != null ? 'PC ' + e.head + ' cm' : null
     ].filter(Boolean).join(' · ');
     return `<div class="hrow">
       <span class="date">${dateFmt}</span>
@@ -384,11 +436,11 @@ function renderHistory(){
 }
 
 /* ---------- Graphiques (canvas natif, sans dépendance) ---------- */
-function drawChart(canvasId, refData, entryKey, pointColor){
+function drawChart(canvasId, refData, entryKey, pointColor, customHeight){
   const canvas = document.getElementById(canvasId);
   const ratio = window.devicePixelRatio || 1;
   const cssWidth = canvas.parentElement.clientWidth;
-  const cssHeight = 220;
+  const cssHeight = customHeight || 220;
   canvas.width = cssWidth * ratio;
   canvas.height = cssHeight * ratio;
   canvas.style.height = cssHeight + 'px';
@@ -445,7 +497,7 @@ function drawChart(canvasId, refData, entryKey, pointColor){
 
   // axe X (mois)
   ctx.fillStyle = 'rgba(185,190,222,0.8)';
-  ctx.font = '10px Nunito Sans, sans-serif';
+  ctx.font = (customHeight ? '13px' : '10px') + ' Nunito Sans, sans-serif';
   ctx.textAlign = 'center';
   [0,6,12,18,24].forEach(m => {
     ctx.fillText(m+'m', xPix(m), cssHeight-6);
@@ -474,7 +526,32 @@ function drawChart(canvasId, refData, entryKey, pointColor){
 function renderCharts(){
   drawChart('chartWeight', REF_WEIGHT, 'weight', '#EE8B8B');
   drawChart('chartHeight', REF_HEIGHT, 'height', '#7FD1C0');
+  drawChart('chartHead', REF_HEAD, 'head', '#8EC7F0');
 }
+
+/* ---------- Zoom plein écran des graphiques ---------- */
+let currentModal = null;
+const chartModal = document.getElementById('chartModal');
+
+function openChartModal(refData, entryKey, pointColor, title){
+  currentModal = { refData, entryKey, pointColor };
+  document.getElementById('modalTitle').textContent = title;
+  chartModal.classList.add('open');
+  drawModalChart();
+}
+function drawModalChart(){
+  if (!currentModal) return;
+  const h = window.innerHeight - 90;
+  drawChart('chartModalCanvas', currentModal.refData, currentModal.entryKey, currentModal.pointColor, h);
+}
+document.getElementById('closeModal').addEventListener('click', () => {
+  chartModal.classList.remove('open');
+  currentModal = null;
+});
+
+document.getElementById('chartWeight').addEventListener('click', () => openChartModal(REF_WEIGHT, 'weight', '#EE8B8B', 'Poids'));
+document.getElementById('chartHeight').addEventListener('click', () => openChartModal(REF_HEIGHT, 'height', '#7FD1C0', 'Taille'));
+document.getElementById('chartHead').addEventListener('click', () => openChartModal(REF_HEAD, 'head', '#8EC7F0', 'Périmètre crânien'));
 
 /* ---------- Journal (tétées / biberons / pipi / caca) ---------- */
 const JOURNAL_KEY = 'milo_journal_v1';
@@ -520,7 +597,7 @@ function getChosenMoment(){
 
 function addJournalEntry(type, extra){
   extra = extra || {};
-  const at = getChosenMoment();
+  const at = extra.at || getChosenMoment();
   journal.push({
     id: Date.now(),
     type,
@@ -596,9 +673,11 @@ function renderRecapTable(){
   const byDay = {};
   journal.forEach(e => {
     const key = dateKey(new Date(e.at));
-    if (!byDay[key]) byDay[key] = { feeds: 0, ml: 0, pipi: 0, caca: 0 };
-    if (e.type === 'tetee' || e.type === 'biberon'){
-      byDay[key].feeds += 1;
+    if (!byDay[key]) byDay[key] = { tetees: 0, biberons: 0, ml: 0, pipi: 0, caca: 0 };
+    if (e.type === 'tetee'){
+      byDay[key].tetees += 1;
+    } else if (e.type === 'biberon'){
+      byDay[key].biberons += 1;
       if (e.ml) byDay[key].ml += e.ml;
     } else if (e.type === 'pipi'){
       byDay[key].pipi += 1;
@@ -608,14 +687,15 @@ function renderRecapTable(){
   });
   const keys = Object.keys(byDay).sort((a,b) => b.localeCompare(a)).slice(0, 14);
   if (keys.length === 0){
-    tbody.innerHTML = `<tr><td colspan="5" class="empty">Aucune donnée pour l'instant.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">Aucune donnée pour l'instant.</td></tr>`;
     return;
   }
   tbody.innerHTML = keys.map(k => {
     const d = byDay[k];
     return `<tr>
       <td>${dateFmtShort(k)}</td>
-      <td>${d.feeds}</td>
+      <td>${d.tetees}</td>
+      <td>${d.biberons}</td>
       <td>${d.ml || '—'}</td>
       <td>${d.pipi}</td>
       <td>${d.caca}</td>
@@ -641,7 +721,9 @@ document.getElementById('btnTetee').addEventListener('click', () => {
 });
 document.getElementById('minConfirm').addEventListener('click', () => {
   const minutes = parseFloat(document.getElementById('minInput').value);
-  addJournalEntry('tetee', { minutes: minutes && minutes > 0 ? minutes : null });
+  const chosen = getChosenMoment();
+  const at = (minutes && minutes > 0) ? new Date(chosen.getTime() - minutes * 60000) : chosen;
+  addJournalEntry('tetee', { minutes: minutes && minutes > 0 ? minutes : null, at });
   document.getElementById('minInput').value = '';
   minRow.classList.remove('open');
 });
@@ -664,17 +746,20 @@ document.getElementById('entryForm').addEventListener('submit', function(ev){
   const date = document.getElementById('fDate').value;
   const weight = document.getElementById('fWeight').value;
   const height = document.getElementById('fHeight').value;
-  if (!date || (!weight && !height)) return;
+  const head = document.getElementById('fHead').value;
+  if (!date || (!weight && !height && !head)) return;
 
   entries.push({
     id: Date.now(),
     date,
     weight: weight ? parseFloat(weight) : null,
-    height: height ? parseFloat(height) : null
+    height: height ? parseFloat(height) : null,
+    head: head ? parseFloat(head) : null
   });
   saveEntries(entries);
   document.getElementById('fWeight').value = '';
   document.getElementById('fHeight').value = '';
+  document.getElementById('fHead').value = '';
   renderAll();
 });
 
@@ -694,7 +779,7 @@ setInterval(() => {
   const logTimeEl = document.getElementById('logTime');
   if (document.activeElement !== logTimeEl) logTimeEl.value = currentTimeValue();
 }, 60000);
-window.addEventListener('resize', renderCharts);
+window.addEventListener('resize', () => { renderCharts(); drawModalChart(); });
 </script>
 </body>
 </html>
