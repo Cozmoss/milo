@@ -133,13 +133,15 @@
   .qbtn.pipi{border-color:#8EC7F066;}
   .qbtn.caca{border-color:#C9A06766;}
 
-  .mlrow{display:none; gap:8px; margin-top:10px;}
+  .mlrow{display:none; gap:8px; margin-top:10px; flex-wrap:wrap;}
   .mlrow.open{display:flex;}
   .mlrow input{flex:1;}
   .mlrow button{
     background:var(--moon); color:var(--night-deep); border:none; border-radius:10px;
     padding:0 18px; font-weight:800; font-family:inherit; cursor:pointer;
   }
+
+  .qbtn.wake{margin-top:8px;}
 
   .today-log{margin-top:14px; display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto;}
   .lrow{
@@ -152,7 +154,8 @@
   .lrow .ldesc{flex:1; color:var(--ink);}
   .lrow button{background:none; border:none; color:var(--coral); font-size:16px; cursor:pointer; padding:2px 4px;}
 
-  table.recap{width:100%; border-collapse:collapse; margin-top:14px; font-size:12.5px;}
+  .recapScroll{overflow-x:auto; margin-top:14px;}
+  table.recap{width:100%; min-width:320px; border-collapse:collapse; font-size:12.5px;}
   table.recap th{
     text-align:center; color:var(--ink-faint); font-weight:700; font-size:10.5px;
     text-transform:uppercase; letter-spacing:0.04em; padding:0 2px 8px;
@@ -171,6 +174,8 @@
     z-index:50;
   }
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  .chartBox{position:relative; height:220px;}
 
   canvas.zoomable{cursor:pointer;}
   .zoomhint{color:var(--ink-faint); font-size:11px; margin:8px 0 0; text-align:center;}
@@ -191,6 +196,18 @@
     width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer;
   }
   .chartModal canvas{flex:1; width:100%;}
+
+  .chartZoomWrap{
+    flex:1; position:relative; min-height:0;
+  }
+  .chartModal .zoomhint{margin:10px 0 0;}
+
+  .modalControls{display:flex; gap:8px; justify-content:center; margin-bottom:10px;}
+  .ctrlBtn{
+    background:var(--card); border:1px solid var(--card-line); color:var(--ink);
+    width:42px; height:38px; border-radius:10px; font-size:16px; cursor:pointer; font-family:inherit;
+  }
+  .ctrlBtn:active{background:var(--moon); color:var(--night-deep);}
 </style>
 </head>
 <body>
@@ -220,6 +237,7 @@
       <button class="qbtn pipi" id="btnPipi"><span class="emoji">💧</span>Pipi</button>
       <button class="qbtn caca" id="btnCaca"><span class="emoji">💩</span>Caca</button>
     </div>
+    <button class="qbtn wake" id="btnWoke" style="width:100%;"><span class="emoji">🌙</span>Réveillé tout seul</button>
     <div class="mlrow" id="minRow">
       <input type="number" id="minInput" placeholder="Durée en minutes" min="0" step="1">
       <button id="minConfirm">Ajouter</button>
@@ -231,12 +249,14 @@
 
     <div class="today-log" id="todayLog"></div>
 
+    <div class="recapScroll">
     <table class="recap" id="recapTable">
       <thead>
-        <tr><th>Jour</th><th>🤱 Tétées</th><th>🍼 Biberons</th><th>ml</th><th>💧</th><th>💩</th></tr>
+        <tr><th>Jour</th><th>🤱 Tét.</th><th>🍼 Bib.</th><th>💧</th><th>💩</th><th>🌙 Seul</th></tr>
       </thead>
       <tbody id="recapBody"></tbody>
     </table>
+    </div>
   </div>
 
   <div class="card">
@@ -247,7 +267,7 @@
       <span><i class="dot" style="background:#F5C56B"></i>Médiane (P50)</span>
       <span><i class="dot" style="background:#EE8B8B"></i>Milo</span>
     </div>
-    <canvas id="chartWeight" height="220" class="zoomable"></canvas>
+    <div class="chartBox"><canvas id="chartWeight" class="zoomable"></canvas></div>
     <p class="zoomhint">Touche le graphique pour l'agrandir</p>
   </div>
 
@@ -259,7 +279,7 @@
       <span><i class="dot" style="background:#F5C56B"></i>Médiane (P50)</span>
       <span><i class="dot" style="background:#7FD1C0"></i>Milo</span>
     </div>
-    <canvas id="chartHeight" height="220" class="zoomable"></canvas>
+    <div class="chartBox"><canvas id="chartHeight" class="zoomable"></canvas></div>
     <p class="zoomhint">Touche le graphique pour l'agrandir</p>
   </div>
 
@@ -271,7 +291,7 @@
       <span><i class="dot" style="background:#F5C56B"></i>Médiane (P50)</span>
       <span><i class="dot" style="background:#8EC7F0"></i>Milo</span>
     </div>
-    <canvas id="chartHead" height="220" class="zoomable"></canvas>
+    <div class="chartBox"><canvas id="chartHead" class="zoomable"></canvas></div>
     <p class="zoomhint">Touche le graphique pour l'agrandir</p>
   </div>
 
@@ -314,9 +334,25 @@
     <h3 id="modalTitle">Graphique</h3>
     <button class="closeBtn" id="closeModal">✕</button>
   </div>
-  <canvas id="chartModalCanvas"></canvas>
+  <div class="modalControls">
+    <button class="ctrlBtn" id="panLeft">◀</button>
+    <button class="ctrlBtn" id="zoomOut">－</button>
+    <button class="ctrlBtn" id="zoomReset">⟲</button>
+    <button class="ctrlBtn" id="zoomIn">＋</button>
+    <button class="ctrlBtn" id="panRight">▶</button>
+  </div>
+  <div class="chartZoomWrap" id="chartZoomWrap">
+    <canvas id="chartModalCanvas"></canvas>
+  </div>
+  <p class="zoomhint">Boutons ci-dessus, ou pince à 2 doigts pour zoomer · glisse pour déplacer</p>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<script>
+try { Chart.register(ChartZoom); } catch(e) { console.warn('Zoom plugin indisponible', e); }
+</script>
 <script>
 /* ---------- Réglages ---------- */
 const BIRTH = new Date(2026, 7, 25, 23, 53, 0); // 25/08/2026 23:53 (mois 0-indexé)
@@ -435,119 +471,104 @@ function renderHistory(){
   });
 }
 
-/* ---------- Graphiques (canvas natif, sans dépendance) ---------- */
-function drawChart(canvasId, refData, entryKey, pointColor, customHeight){
-  const canvas = document.getElementById(canvasId);
-  const ratio = window.devicePixelRatio || 1;
-  const cssWidth = canvas.parentElement.clientWidth;
-  const cssHeight = customHeight || 220;
-  canvas.width = cssWidth * ratio;
-  canvas.height = cssHeight * ratio;
-  canvas.style.height = cssHeight + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(ratio, ratio);
-  ctx.clearRect(0,0,cssWidth,cssHeight);
-
-  const padL = 34, padR = 10, padT = 10, padB = 22;
-  const plotW = cssWidth - padL - padR;
-  const plotH = cssHeight - padT - padB;
-
-  const xMax = 24;
-  const dataPoints = entries
+/* ---------- Graphiques (Chart.js + plugin de zoom officiel) ---------- */
+function buildDatasets(refData, entryKey, color){
+  const p97 = refData.map(r => ({ x: r[0], y: r[3] }));
+  const p3  = refData.map(r => ({ x: r[0], y: r[1] }));
+  const p50 = refData.map(r => ({ x: r[0], y: r[2] }));
+  const milo = entries
     .filter(e => e[entryKey] != null && e[entryKey] !== '')
     .map(e => ({ x: ageInMonthsAt(e.date), y: parseFloat(e[entryKey]) }))
     .sort((a,b) => a.x - b.x);
 
-  let yMin = Math.min(...refData.map(r => r[1]));
-  let yMax = Math.max(...refData.map(r => r[3]));
-  if (dataPoints.length){
-    yMin = Math.min(yMin, ...dataPoints.map(p => p.y));
-    yMax = Math.max(yMax, ...dataPoints.map(p => p.y));
-  }
-  const yPad = (yMax - yMin) * 0.08 || 1;
-  yMin -= yPad; yMax += yPad;
-
-  const xPix = m => padL + (m / xMax) * plotW;
-  const yPix = v => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
-
-  // grille horizontale légère
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1;
-  for (let i=0;i<=4;i++){
-    const y = padT + (plotH/4)*i;
-    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+plotW,y); ctx.stroke();
-  }
-
-  // bande P3-P97
-  ctx.beginPath();
-  refData.forEach((r,i) => { const [m,,,p97]=r; const px=xPix(m), py=yPix(p97); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); });
-  for (let i=refData.length-1;i>=0;i--){ const [m,p3]=refData[i]; ctx.lineTo(xPix(m), yPix(p3)); }
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(245,197,106,0.14)';
-  ctx.fill();
-
-  // ligne P50
-  ctx.beginPath();
-  refData.forEach((r,i) => { const [m,,p50]=r; const px=xPix(m), py=yPix(p50); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); });
-  ctx.strokeStyle = 'rgba(245,197,106,0.9)';
-  ctx.setLineDash([4,4]);
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // axe X (mois)
-  ctx.fillStyle = 'rgba(185,190,222,0.8)';
-  ctx.font = (customHeight ? '13px' : '10px') + ' Nunito Sans, sans-serif';
-  ctx.textAlign = 'center';
-  [0,6,12,18,24].forEach(m => {
-    ctx.fillText(m+'m', xPix(m), cssHeight-6);
-  });
-
-  // courbe de Milo
-  if (dataPoints.length){
-    ctx.beginPath();
-    dataPoints.forEach((p,i) => { const px=xPix(p.x), py=yPix(p.y); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); });
-    ctx.strokeStyle = pointColor;
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    dataPoints.forEach(p => {
-      ctx.beginPath();
-      ctx.arc(xPix(p.x), yPix(p.y), 4, 0, Math.PI*2);
-      ctx.fillStyle = pointColor;
-      ctx.fill();
-      ctx.strokeStyle = '#161B33';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    });
-  }
+  return [
+    { label: 'P97', data: p97, borderColor: 'transparent', backgroundColor: 'transparent', pointRadius: 0, fill: false, tension: 0.3, order: 3 },
+    { label: 'P3–P97', data: p3, borderColor: 'transparent', backgroundColor: 'rgba(245,197,106,0.14)', pointRadius: 0, fill: '-1', tension: 0.3, order: 2 },
+    { label: 'Médiane', data: p50, borderColor: 'rgba(245,197,106,0.9)', borderDash: [4,4], borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3, order: 1 },
+    { label: 'Milo', data: milo, borderColor: color, backgroundColor: color, pointRadius: 4, pointBorderColor: '#161B33', pointBorderWidth: 1.5, borderWidth: 2.5, fill: false, tension: 0, order: 0 }
+  ];
 }
 
+function chartOptions(withZoom){
+  const opts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { intersect: false, mode: 'nearest' },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          title: (items) => items.length ? (Math.round(items[0].parsed.x * 10) / 10) + ' mois' : '',
+          label: (item) => item.dataset.label === 'Milo' ? 'Milo : ' + item.parsed.y : null
+        },
+        filter: (item) => item.dataset.label === 'Milo'
+      }
+    },
+    scales: {
+      x: {
+        type: 'linear', min: 0, max: 24,
+        ticks: { color: 'rgba(185,190,222,0.8)', precision: 0, callback: (v) => Math.round(v) + 'm' },
+        grid: { color: 'rgba(255,255,255,0.06)' }
+      },
+      y: {
+        ticks: { color: 'rgba(185,190,222,0.8)', precision: 0 },
+        grid: { color: 'rgba(255,255,255,0.06)' }
+      }
+    }
+  };
+  if (withZoom && typeof ChartZoom !== 'undefined'){
+    opts.plugins.zoom = {
+      pan: { enabled: true, mode: 'x' },
+      zoom: { pinch: { enabled: true }, wheel: { enabled: true }, mode: 'x' },
+      limits: { x: { min: 0, max: 24, minRange: 2 } }
+    };
+  }
+  return opts;
+}
+
+function makeChart(canvasId, refData, entryKey, color, withZoom){
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { datasets: buildDatasets(refData, entryKey, color) },
+    options: chartOptions(withZoom)
+  });
+}
+
+let weightChart, heightChart, headChart, modalChart;
+
 function renderCharts(){
-  drawChart('chartWeight', REF_WEIGHT, 'weight', '#EE8B8B');
-  drawChart('chartHeight', REF_HEIGHT, 'height', '#7FD1C0');
-  drawChart('chartHead', REF_HEAD, 'head', '#8EC7F0');
+  if (weightChart) weightChart.destroy();
+  if (heightChart) heightChart.destroy();
+  if (headChart) headChart.destroy();
+  weightChart = makeChart('chartWeight', REF_WEIGHT, 'weight', '#EE8B8B', false);
+  heightChart = makeChart('chartHeight', REF_HEIGHT, 'height', '#7FD1C0', false);
+  headChart = makeChart('chartHead', REF_HEAD, 'head', '#8EC7F0', false);
 }
 
 /* ---------- Zoom plein écran des graphiques ---------- */
-let currentModal = null;
 const chartModal = document.getElementById('chartModal');
 
-function openChartModal(refData, entryKey, pointColor, title){
-  currentModal = { refData, entryKey, pointColor };
+function openChartModal(refData, entryKey, color, title){
   document.getElementById('modalTitle').textContent = title;
   chartModal.classList.add('open');
-  drawModalChart();
-}
-function drawModalChart(){
-  if (!currentModal) return;
-  const h = window.innerHeight - 90;
-  drawChart('chartModalCanvas', currentModal.refData, currentModal.entryKey, currentModal.pointColor, h);
+  if (modalChart) modalChart.destroy();
+  modalChart = makeChart('chartModalCanvas', refData, entryKey, color, true);
 }
 document.getElementById('closeModal').addEventListener('click', () => {
   chartModal.classList.remove('open');
-  currentModal = null;
+  if (modalChart){ modalChart.destroy(); modalChart = null; }
 });
+
+function hasZoomAPI(){
+  return modalChart && typeof modalChart.zoom === 'function';
+}
+document.getElementById('zoomIn').addEventListener('click', () => { if (hasZoomAPI()) modalChart.zoom(1.4); });
+document.getElementById('zoomOut').addEventListener('click', () => { if (hasZoomAPI()) modalChart.zoom(0.7); });
+document.getElementById('zoomReset').addEventListener('click', () => { if (hasZoomAPI()) modalChart.resetZoom(); });
+document.getElementById('panLeft').addEventListener('click', () => { if (hasZoomAPI()) modalChart.pan({ x: 100 }); });
+document.getElementById('panRight').addEventListener('click', () => { if (hasZoomAPI()) modalChart.pan({ x: -100 }); });
 
 document.getElementById('chartWeight').addEventListener('click', () => openChartModal(REF_WEIGHT, 'weight', '#EE8B8B', 'Poids'));
 document.getElementById('chartHeight').addEventListener('click', () => openChartModal(REF_HEIGHT, 'height', '#7FD1C0', 'Taille'));
@@ -614,7 +635,8 @@ function addJournalEntry(type, extra){
     tetee: extra.minutes ? `Tétée ajoutée \u2014 ${extra.minutes} min \u2014 ${t}` : `Tétée ajoutée \u2014 ${t}`,
     biberon: extra.ml ? `Biberon ajouté \u2014 ${extra.ml} ml \u2014 ${t}` : `Biberon ajouté \u2014 ${t}`,
     pipi: `Pipi ajouté \u2014 ${t}`,
-    caca: `Caca ajouté \u2014 ${t}`
+    caca: `Caca ajouté \u2014 ${t}`,
+    reveil: `Réveil spontané ajouté \u2014 ${t}`
   };
   showToast(labels[type]);
 }
@@ -643,7 +665,8 @@ function renderTodayLog(){
     tetee: { emoji: '🤱', label: 'Tétée' },
     biberon: { emoji: '🍼', label: 'Biberon' },
     pipi: { emoji: '💧', label: 'Pipi' },
-    caca: { emoji: '💩', label: 'Caca' }
+    caca: { emoji: '💩', label: 'Caca' },
+    reveil: { emoji: '🌙', label: 'Réveillé tout seul' }
   };
   el.innerHTML = todays.map(e => {
     const m = meta[e.type];
@@ -673,7 +696,7 @@ function renderRecapTable(){
   const byDay = {};
   journal.forEach(e => {
     const key = dateKey(new Date(e.at));
-    if (!byDay[key]) byDay[key] = { tetees: 0, biberons: 0, ml: 0, pipi: 0, caca: 0 };
+    if (!byDay[key]) byDay[key] = { tetees: 0, biberons: 0, ml: 0, pipi: 0, caca: 0, reveil: 0 };
     if (e.type === 'tetee'){
       byDay[key].tetees += 1;
     } else if (e.type === 'biberon'){
@@ -683,6 +706,8 @@ function renderRecapTable(){
       byDay[key].pipi += 1;
     } else if (e.type === 'caca'){
       byDay[key].caca += 1;
+    } else if (e.type === 'reveil'){
+      byDay[key].reveil += 1;
     }
   });
   const keys = Object.keys(byDay).sort((a,b) => b.localeCompare(a)).slice(0, 14);
@@ -692,13 +717,14 @@ function renderRecapTable(){
   }
   tbody.innerHTML = keys.map(k => {
     const d = byDay[k];
+    const bib = d.biberons + (d.ml ? ` (${d.ml}ml)` : '');
     return `<tr>
       <td>${dateFmtShort(k)}</td>
       <td>${d.tetees}</td>
-      <td>${d.biberons}</td>
-      <td>${d.ml || '—'}</td>
+      <td>${bib}</td>
       <td>${d.pipi}</td>
       <td>${d.caca}</td>
+      <td>${d.reveil}</td>
     </tr>`;
   }).join('');
 }
@@ -710,6 +736,7 @@ function renderJournal(){
 
 document.getElementById('btnPipi').addEventListener('click', () => addJournalEntry('pipi'));
 document.getElementById('btnCaca').addEventListener('click', () => addJournalEntry('caca'));
+document.getElementById('btnWoke').addEventListener('click', () => addJournalEntry('reveil'));
 
 const minRow = document.getElementById('minRow');
 const mlRow = document.getElementById('mlRow');
@@ -775,11 +802,10 @@ document.getElementById('fDate').valueAsDate = new Date();
 document.getElementById('logTime').value = currentTimeValue();
 renderAll();
 setInterval(() => {
-  renderAll();
+  renderAge();
   const logTimeEl = document.getElementById('logTime');
   if (document.activeElement !== logTimeEl) logTimeEl.value = currentTimeValue();
 }, 60000);
-window.addEventListener('resize', () => { renderCharts(); drawModalChart(); });
 </script>
 </body>
 </html>
