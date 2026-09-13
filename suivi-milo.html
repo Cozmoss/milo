@@ -143,6 +143,14 @@
 
   .qbtn.wake{margin-top:8px;}
 
+  .tetRow{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px;}
+  .tetBox{
+    background:var(--night-deep); border:1px solid var(--card-line); border-radius:12px;
+    padding:10px 4px; text-align:center;
+  }
+  .tetBox .k{font-size:10px; color:var(--ink-faint); margin-bottom:4px; line-height:1.3;}
+  .tetBox .v{font-family:'Fraunces',serif; font-weight:600; font-size:16px; color:var(--ink);}
+
   .today-log{margin-top:14px; display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto;}
   .lrow{
     display:flex; align-items:center; gap:8px; font-size:13px;
@@ -257,6 +265,14 @@
       <tbody id="recapBody"></tbody>
     </table>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Dernières tétées</h2>
+    <p class="sub">Écarts entre les 3 dernières tétées</p>
+    <div class="tetRow" id="tetGaps"></div>
+    <p class="sub" style="margin-top:14px;">Durée des 3 dernières tétées</p>
+    <div class="tetRow" id="tetDurations"></div>
   </div>
 
   <div class="card">
@@ -732,6 +748,43 @@ function renderRecapTable(){
 function renderJournal(){
   renderTodayLog();
   renderRecapTable();
+  renderLastFeeds();
+}
+
+function formatDuration(ms){
+  if (ms == null || ms < 0) return '—';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return m + 'min';
+  if (m === 0) return h + 'h';
+  return h + 'h' + String(m).padStart(2,'0');
+}
+
+function renderLastFeeds(){
+  const tetees = journal
+    .filter(e => e.type === 'tetee')
+    .sort((a,b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 3);
+
+  const gapLabels = ['Depuis la dernière', 'Écart précédent', 'Encore avant'];
+  const gapsHtml = gapLabels.map((label, i) => {
+    let val = '—';
+    if (i === 0){
+      if (tetees[0]) val = formatDuration(Date.now() - new Date(tetees[0].at).getTime());
+    } else if (tetees[i-1] && tetees[i]){
+      val = formatDuration(new Date(tetees[i-1].at) - new Date(tetees[i].at));
+    }
+    return `<div class="tetBox"><div class="k">${label}</div><div class="v">${val}</div></div>`;
+  }).join('');
+  document.getElementById('tetGaps').innerHTML = gapsHtml;
+
+  const durLabels = ['Dernière', 'Avant', 'Encore avant'];
+  const dursHtml = durLabels.map((label, i) => {
+    const val = (tetees[i] && tetees[i].minutes) ? tetees[i].minutes + ' min' : '—';
+    return `<div class="tetBox"><div class="k">${label}</div><div class="v">${val}</div></div>`;
+  }).join('');
+  document.getElementById('tetDurations').innerHTML = dursHtml;
 }
 
 document.getElementById('btnPipi').addEventListener('click', () => addJournalEntry('pipi'));
@@ -803,6 +856,7 @@ document.getElementById('logTime').value = currentTimeValue();
 renderAll();
 setInterval(() => {
   renderAge();
+  renderLastFeeds();
   const logTimeEl = document.getElementById('logTime');
   if (document.activeElement !== logTimeEl) logTimeEl.value = currentTimeValue();
 }, 60000);
