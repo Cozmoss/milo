@@ -761,24 +761,42 @@ function formatDuration(ms){
   return h + 'h' + String(m).padStart(2,'0');
 }
 
-function renderLastFeeds(){
-  const feeds = journal
+const SESSION_GAP_MS = 60 * 60000; // en dessous de ça, on considère que c'est la même séance (ex. tétée + complément biberon)
+
+function sessionizeFeeds(){
+  const all = journal
     .filter(e => e.type === 'tetee' || e.type === 'biberon')
-    .sort((a,b) => new Date(b.at) - new Date(a.at))
-    .slice(0, 3);
+    .map(e => ({ ...e, atMs: new Date(e.at).getTime() }))
+    .sort((a,b) => a.atMs - b.atMs);
+
+  const sessions = [];
+  for (const e of all){
+    const last = sessions[sessions.length - 1];
+    if (last && (e.atMs - last.lastMs) < SESSION_GAP_MS){
+      last.lastMs = e.atMs;
+      last.entries.push(e);
+    } else {
+      sessions.push({ startMs: e.atMs, lastMs: e.atMs, entries: [e] });
+    }
+  }
+  return sessions;
+}
+
+function renderLastFeeds(){
+  const sessions = sessionizeFeeds().slice(-3).reverse();
   const tetees = journal
     .filter(e => e.type === 'tetee')
     .sort((a,b) => new Date(b.at) - new Date(a.at))
     .slice(0, 3);
 
-  const icon = (e) => e ? (e.type === 'tetee' ? '🤱' : '🍼') : '';
+  const icon = (s) => s ? (s.entries.some(e => e.type === 'tetee') ? '🤱' : '🍼') : '';
   const gapLabels = ['Depuis la dernière', 'Écart précédent', 'Encore avant'];
   const gapsHtml = gapLabels.map((label, i) => {
     let val = '—';
     if (i === 0){
-      if (feeds[0]) val = formatDuration(Date.now() - new Date(feeds[0].at).getTime()) + ' ' + icon(feeds[0]);
-    } else if (feeds[i-1] && feeds[i]){
-      val = formatDuration(new Date(feeds[i-1].at) - new Date(feeds[i].at)) + ' ' + icon(feeds[i]);
+      if (sessions[0]) val = formatDuration(Date.now() - sessions[0].startMs) + ' ' + icon(sessions[0]);
+    } else if (sessions[i-1] && sessions[i]){
+      val = formatDuration(sessions[i-1].startMs - sessions[i].startMs) + ' ' + icon(sessions[i]);
     }
     return `<div class="tetBox"><div class="k">${label}</div><div class="v">${val}</div></div>`;
   }).join('');
