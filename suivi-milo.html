@@ -268,8 +268,8 @@
   </div>
 
   <div class="card">
-    <h2>Dernières tétées</h2>
-    <p class="sub">Écarts entre les 3 dernières tétées</p>
+    <h2>Dernières prises</h2>
+    <p class="sub">Écarts entre les 3 dernières prises (tétée ou biberon)</p>
     <div class="tetRow" id="tetGaps"></div>
     <p class="sub" style="margin-top:14px;">Durée des 3 dernières tétées</p>
     <div class="tetRow" id="tetDurations"></div>
@@ -762,18 +762,23 @@ function formatDuration(ms){
 }
 
 function renderLastFeeds(){
+  const feeds = journal
+    .filter(e => e.type === 'tetee' || e.type === 'biberon')
+    .sort((a,b) => new Date(b.at) - new Date(a.at))
+    .slice(0, 3);
   const tetees = journal
     .filter(e => e.type === 'tetee')
     .sort((a,b) => new Date(b.at) - new Date(a.at))
     .slice(0, 3);
 
+  const icon = (e) => e ? (e.type === 'tetee' ? '🤱' : '🍼') : '';
   const gapLabels = ['Depuis la dernière', 'Écart précédent', 'Encore avant'];
   const gapsHtml = gapLabels.map((label, i) => {
     let val = '—';
     if (i === 0){
-      if (tetees[0]) val = formatDuration(Date.now() - new Date(tetees[0].at).getTime());
-    } else if (tetees[i-1] && tetees[i]){
-      val = formatDuration(new Date(tetees[i-1].at) - new Date(tetees[i].at));
+      if (feeds[0]) val = formatDuration(Date.now() - new Date(feeds[0].at).getTime()) + ' ' + icon(feeds[0]);
+    } else if (feeds[i-1] && feeds[i]){
+      val = formatDuration(new Date(feeds[i-1].at) - new Date(feeds[i].at)) + ' ' + icon(feeds[i]);
     }
     return `<div class="tetBox"><div class="k">${label}</div><div class="v">${val}</div></div>`;
   }).join('');
