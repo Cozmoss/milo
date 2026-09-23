@@ -95,6 +95,16 @@
     font-family:inherit;
   }
   input:focus{outline:none; border-color:var(--moon);}
+
+  select{
+    width:100%; background:var(--night-deep); border:1px solid var(--card-line);
+    color:var(--ink); border-radius:10px; padding:11px 36px 11px 12px; font-size:15px;
+    font-family:inherit; appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23B9BEDE'%3E%3Cpath d='M5.25 7.5L10 12.25L14.75 7.5H5.25Z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 10px center; background-size:18px;
+  }
+  select:focus{outline:none; border-color:var(--moon);}
+  select option{background:var(--night-deep); color:var(--ink);}
   button.add{
     grid-column:1/-1; margin-top:4px; background:var(--moon); color:var(--night-deep);
     border:none; border-radius:10px; padding:13px; font-weight:800; font-size:15px;
@@ -119,6 +129,7 @@
   .timerow{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
   .timerow label{margin:0; white-space:nowrap;}
   .timerow input{width:auto; flex:0 0 auto;}
+  .timerow select{flex:1; min-width:0;}
 
   .quickrow{display:grid; grid-template-columns:repeat(4,1fr); gap:8px;}
   .qbtn{
@@ -143,6 +154,11 @@
 
   .qbtn.wake{margin-top:8px;}
 
+  .weanBanner{
+    flex:1 1 100%; background:var(--moon-soft); border:1px solid var(--moon); color:var(--moon);
+    border-radius:10px; padding:9px 10px; font-size:12.5px; font-weight:700; text-align:center;
+  }
+
   .tetRow{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px;}
   .tetBox{
     background:var(--night-deep); border:1px solid var(--card-line); border-radius:12px;
@@ -162,8 +178,9 @@
   .lrow .ldesc{flex:1; color:var(--ink);}
   .lrow button{background:none; border:none; color:var(--coral); font-size:16px; cursor:pointer; padding:2px 4px;}
 
-  .recapScroll{overflow-x:auto; margin-top:14px;}
+  .recapScroll{overflow-x:auto; overflow-y:auto; max-height:300px; margin-top:14px;}
   table.recap{width:100%; min-width:320px; border-collapse:collapse; font-size:12.5px;}
+  table.recap thead th{position:sticky; top:0; background:var(--card); padding-bottom:8px;}
   table.recap th{
     text-align:center; color:var(--ink-faint); font-weight:700; font-size:10.5px;
     text-transform:uppercase; letter-spacing:0.04em; padding:0 2px 8px;
@@ -233,6 +250,21 @@
   </div>
 
   <div class="card">
+    <h2>Objectif sevrage</h2>
+    <p class="sub">Sauter progressivement les biberons de complément pour passer à l'allaitement exclusif.</p>
+    <div class="timerow">
+      <label for="weanRatio">Rythme</label>
+      <select id="weanRatio">
+        <option value="0">Désactivé</option>
+        <option value="3">Sauter 1 biberon sur 3</option>
+        <option value="2">Sauter 1 biberon sur 2</option>
+        <option value="1">Toujours sauter (sein uniquement)</option>
+      </select>
+    </div>
+    <p class="sub" id="weanStatus" style="margin:0;"></p>
+  </div>
+
+  <div class="card">
     <h2>Journal</h2>
     <p class="sub">Un tap pour enregistrer. Ajuste l'heure si tu notes après coup.</p>
     <div class="timerow">
@@ -251,6 +283,7 @@
       <button id="minConfirm">Ajouter</button>
     </div>
     <div class="mlrow" id="mlRow">
+      <div class="weanBanner" id="weanBanner" style="display:none;"></div>
       <input type="number" id="mlInput" placeholder="Quantité en ml" min="0" step="5">
       <button id="mlConfirm">Ajouter</button>
     </div>
@@ -749,7 +782,42 @@ function renderJournal(){
   renderTodayLog();
   renderRecapTable();
   renderLastFeeds();
+  renderWeanStatus();
 }
+
+/* ---------- Objectif sevrage (sauter progressivement les biberons de complément) ---------- */
+const WEAN_KEY = 'milo_wean_ratio';
+function getWeanRatio(){
+  const v = parseInt(localStorage.getItem(WEAN_KEY) || '0', 10);
+  return isNaN(v) ? 0 : v;
+}
+function setWeanRatio(v){
+  localStorage.setItem(WEAN_KEY, String(v));
+}
+function totalBiberons(){
+  return journal.filter(e => e.type === 'biberon').length;
+}
+function nextBiberonIsSkip(){
+  const ratio = getWeanRatio();
+  if (ratio <= 0) return false;
+  const next = totalBiberons() + 1;
+  return next % ratio === 0;
+}
+function renderWeanStatus(){
+  const ratio = getWeanRatio();
+  const statusEl = document.getElementById('weanStatus');
+  if (ratio <= 0){ statusEl.textContent = ''; return; }
+  const next = totalBiberons() + 1;
+  const label = ratio === 1 ? 'sein uniquement' : `1 biberon sur ${ratio}`;
+  statusEl.innerHTML = nextBiberonIsSkip()
+    ? `🎯 Objectif (${label}) — <strong>essaie de sauter</strong> le prochain biberon (n°${next})`
+    : `Objectif (${label}) — prochain biberon : n°${next}, pas de souci`;
+}
+
+document.getElementById('weanRatio').addEventListener('change', (e) => {
+  setWeanRatio(e.target.value);
+  renderWeanStatus();
+});
 
 function formatDuration(ms){
   if (ms == null || ms < 0) return '—';
@@ -834,7 +902,16 @@ document.getElementById('minConfirm').addEventListener('click', () => {
 document.getElementById('btnBiberon').addEventListener('click', () => {
   minRow.classList.remove('open');
   mlRow.classList.toggle('open');
-  if (mlRow.classList.contains('open')) document.getElementById('mlInput').focus();
+  if (mlRow.classList.contains('open')){
+    document.getElementById('mlInput').focus();
+    const banner = document.getElementById('weanBanner');
+    if (nextBiberonIsSkip()){
+      banner.textContent = '🎯 Essaie de sauter ce biberon — propose le sein d\u2019abord !';
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
 });
 document.getElementById('mlConfirm').addEventListener('click', () => {
   const ml = parseFloat(document.getElementById('mlInput').value);
@@ -876,6 +953,7 @@ function renderAll(){
 
 document.getElementById('fDate').valueAsDate = new Date();
 document.getElementById('logTime').value = currentTimeValue();
+document.getElementById('weanRatio').value = String(getWeanRatio());
 renderAll();
 setInterval(() => {
   renderAge();
