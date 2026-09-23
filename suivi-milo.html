@@ -794,24 +794,30 @@ function getWeanRatio(){
 function setWeanRatio(v){
   localStorage.setItem(WEAN_KEY, String(v));
 }
-function totalBiberons(){
-  return journal.filter(e => e.type === 'biberon').length;
+function currentSessionNumber(){
+  const sessions = sessionizeFeeds();
+  if (sessions.length === 0) return 1;
+  const last = sessions[sessions.length - 1];
+  const sinceLast = Date.now() - last.lastMs;
+  // si la dernière tétée/biberon date de moins d'1h, le biberon qu'on s'apprête
+  // à donner ferait partie de cette même séance ; sinon ce serait une nouvelle séance
+  return (sinceLast < SESSION_GAP_MS) ? sessions.length : sessions.length + 1;
 }
 function nextBiberonIsSkip(){
   const ratio = getWeanRatio();
   if (ratio <= 0) return false;
-  const next = totalBiberons() + 1;
-  return next % ratio === 0;
+  const n = currentSessionNumber();
+  return n % ratio === 0;
 }
 function renderWeanStatus(){
   const ratio = getWeanRatio();
   const statusEl = document.getElementById('weanStatus');
   if (ratio <= 0){ statusEl.textContent = ''; return; }
-  const next = totalBiberons() + 1;
+  const n = currentSessionNumber();
   const label = ratio === 1 ? 'sein uniquement' : `1 biberon sur ${ratio}`;
   statusEl.innerHTML = nextBiberonIsSkip()
-    ? `🎯 Objectif (${label}) — <strong>essaie de sauter</strong> le prochain biberon (n°${next})`
-    : `Objectif (${label}) — prochain biberon : n°${next}, pas de souci`;
+    ? `🎯 Objectif (${label}) — c'est la tétée n°${n} : <strong>essaie de sauter</strong> le biberon`
+    : `Objectif (${label}) — tétée n°${n}, pas de souci pour le biberon`;
 }
 
 document.getElementById('weanRatio').addEventListener('change', (e) => {
