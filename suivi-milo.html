@@ -159,6 +159,17 @@
     border-radius:10px; padding:9px 10px; font-size:12.5px; font-weight:700; text-align:center;
   }
 
+  .mealRow{display:flex; align-items:center; gap:14px;}
+  .mealBtn{
+    width:46px; height:46px; border-radius:50%; flex:0 0 auto;
+    background:var(--night-deep); border:1px solid var(--card-line); color:var(--ink);
+    font-size:22px; font-weight:800; font-family:inherit; cursor:pointer;
+  }
+  .mealBtn:active{background:var(--moon); color:var(--night-deep); border-color:var(--moon);}
+  .mealCountBox{flex:1; text-align:center;}
+  .mealCountBox .k{font-size:11px; color:var(--ink-faint); margin-bottom:2px;}
+  .mealCountBox .v{font-family:'Fraunces',serif; font-weight:700; font-size:30px; color:var(--ink);}
+
   .tetRow{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px;}
   .tetBox{
     background:var(--night-deep); border:1px solid var(--card-line); border-radius:12px;
@@ -265,6 +276,16 @@
   </div>
 
   <div class="card">
+    <h2>Repas du jour</h2>
+    <p class="sub">Compteur manuel, indépendant des tétées/biberons — pour garder le fil même quand un biberon est sauté.</p>
+    <div class="mealRow">
+      <button class="mealBtn" id="mealMinus">−</button>
+      <div class="mealCountBox"><div class="k">Aujourd'hui</div><div class="v" id="mealCount">0</div></div>
+      <button class="mealBtn" id="mealPlus">＋</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Journal</h2>
     <p class="sub">Un tap pour enregistrer. Ajuste l'heure si tu notes après coup.</p>
     <div class="timerow">
@@ -293,7 +314,7 @@
     <div class="recapScroll">
     <table class="recap" id="recapTable">
       <thead>
-        <tr><th>Jour</th><th>🤱 Tét.</th><th>🍼 Bib.</th><th>💧</th><th>💩</th><th>🌙 Seul</th></tr>
+        <tr><th>Jour</th><th>🤱 Tét.</th><th>🍼 Bib.</th><th>💧</th><th>💩</th><th>🌙 Seul</th><th>🍽️</th></tr>
       </thead>
       <tbody id="recapBody"></tbody>
     </table>
@@ -636,6 +657,38 @@ function saveJournal(log){
 }
 let journal = loadJournal();
 
+/* ---------- Repas du jour (compteur manuel, séparé du journal automatique) ---------- */
+const MEALS_KEY = 'milo_meals_v1';
+function loadMeals(){
+  try{
+    const raw = localStorage.getItem(MEALS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+function saveMeals(m){
+  localStorage.setItem(MEALS_KEY, JSON.stringify(m));
+}
+let meals = loadMeals();
+
+function renderMealCount(){
+  const k = dateKey(new Date());
+  document.getElementById('mealCount').textContent = meals[k] || 0;
+}
+document.getElementById('mealPlus').addEventListener('click', () => {
+  const k = dateKey(new Date());
+  meals[k] = (meals[k] || 0) + 1;
+  saveMeals(meals);
+  renderMealCount();
+  renderRecapTable();
+});
+document.getElementById('mealMinus').addEventListener('click', () => {
+  const k = dateKey(new Date());
+  meals[k] = Math.max((meals[k] || 0) - 1, 0);
+  saveMeals(meals);
+  renderMealCount();
+  renderRecapTable();
+});
+
 function dateKey(d){
   return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
 }
@@ -759,13 +812,14 @@ function renderRecapTable(){
       byDay[key].reveil += 1;
     }
   });
-  const keys = Object.keys(byDay).sort((a,b) => b.localeCompare(a)).slice(0, 14);
+  const allKeys = new Set([...Object.keys(byDay), ...Object.keys(meals)]);
+  const keys = [...allKeys].sort((a,b) => b.localeCompare(a)).slice(0, 14);
   if (keys.length === 0){
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">Aucune donnée pour l'instant.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">Aucune donnée pour l'instant.</td></tr>`;
     return;
   }
   tbody.innerHTML = keys.map(k => {
-    const d = byDay[k];
+    const d = byDay[k] || { tetees: 0, biberons: 0, ml: 0, pipi: 0, caca: 0, reveil: 0 };
     const bib = d.biberons + (d.ml ? ` (${d.ml}ml)` : '');
     return `<tr>
       <td>${dateFmtShort(k)}</td>
@@ -774,6 +828,7 @@ function renderRecapTable(){
       <td>${d.pipi}</td>
       <td>${d.caca}</td>
       <td>${d.reveil}</td>
+      <td>${meals[k] || 0}</td>
     </tr>`;
   }).join('');
 }
@@ -803,9 +858,17 @@ function currentSessionNumber(){
   // à donner ferait partie de cette même séance ; sinon ce serait une nouvelle séance
   return (sinceLast < SESSION_GAP_MS) ? sessions.length : sessions.length + 1;
 }
+function currentSessionAlreadyHasBottle(){
+  const sessions = sessionizeFeeds();
+  if (sessions.length === 0) return false;
+  const last = sessions[sessions.length - 1];
+  if ((Date.now() - last.lastMs) >= SESSION_GAP_MS) return false; // nouvelle séance, pas encore de biberon
+  return last.entries.some(e => e.type === 'biberon');
+}
 function nextBiberonIsSkip(){
   const ratio = getWeanRatio();
   if (ratio <= 0) return false;
+  if (currentSessionAlreadyHasBottle()) return false; // déjà donné pour cette séance, plus la peine d'insister
   const n = currentSessionNumber();
   return n % ratio === 0;
 }
@@ -815,9 +878,13 @@ function renderWeanStatus(){
   if (ratio <= 0){ statusEl.textContent = ''; return; }
   const n = currentSessionNumber();
   const label = ratio === 1 ? 'sein uniquement' : `1 biberon sur ${ratio}`;
-  statusEl.innerHTML = nextBiberonIsSkip()
-    ? `🎯 Objectif (${label}) — c'est la tétée n°${n} : <strong>essaie de sauter</strong> le biberon`
-    : `Objectif (${label}) — tétée n°${n}, pas de souci pour le biberon`;
+  if (currentSessionAlreadyHasBottle()){
+    statusEl.innerHTML = `Objectif (${label}) — tétée n°${n}, biberon déjà donné pour cette séance`;
+  } else {
+    statusEl.innerHTML = nextBiberonIsSkip()
+      ? `🎯 Objectif (${label}) — c'est la tétée n°${n} : <strong>essaie de sauter</strong> le biberon`
+      : `Objectif (${label}) — tétée n°${n}, pas de souci pour le biberon`;
+  }
 }
 
 document.getElementById('weanRatio').addEventListener('change', (e) => {
@@ -961,9 +1028,11 @@ document.getElementById('fDate').valueAsDate = new Date();
 document.getElementById('logTime').value = currentTimeValue();
 document.getElementById('weanRatio').value = String(getWeanRatio());
 renderAll();
+renderMealCount();
 setInterval(() => {
   renderAge();
   renderLastFeeds();
+  renderWeanStatus();
   const logTimeEl = document.getElementById('logTime');
   if (document.activeElement !== logTimeEl) logTimeEl.value = currentTimeValue();
 }, 60000);
