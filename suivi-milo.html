@@ -207,6 +207,27 @@
   table.recap td{text-align:center; padding:8px 2px; color:var(--ink); border-top:1px solid var(--card-line);}
   table.recap td:first-child{color:var(--ink-dim); font-weight:700; white-space:nowrap;}
 
+  .backupRow{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;}
+  .backupBtn{
+    background:var(--night-deep); border:1px solid var(--card-line); color:var(--ink);
+    border-radius:12px; padding:12px 6px; font-family:inherit; font-weight:700; font-size:13px; cursor:pointer;
+    text-align:center;
+  }
+  .backupBtn:active{background:var(--moon); color:var(--night-deep); border-color:var(--moon);}
+  .backupBtn.full{grid-column:1/-1;}
+  .syncBox{margin-top:16px; padding-top:14px; border-top:1px solid var(--card-line);}
+  .syncBox h3{font-family:'Fraunces',serif; font-weight:600; font-size:15.5px; margin:0 0 4px; color:var(--ink);}
+  #syncStatus{margin:0 0 10px;}
+  #syncStatus.ok{color:var(--teal);}
+  #syncStatus.warn{color:var(--coral);}
+  .syncBox details{margin-top:10px; font-size:12.5px; color:var(--ink-dim); line-height:1.55;}
+  .syncBox summary{cursor:pointer; font-weight:700; color:var(--ink);}
+  .syncBox ol{padding-left:18px; margin:8px 0;}
+  .syncBox li{margin-bottom:6px;}
+  .syncBox input{margin:8px 0;}
+  #backupInfo{margin:10px 0 0; line-height:1.5;}
+  #backupInfo.warn{color:var(--coral);}
+
   footer{text-align:center; color:var(--ink-faint); font-size:11.5px; margin-top:26px; line-height:1.6; padding:0 12px;}
 
   .toast{
@@ -396,8 +417,157 @@
     <div class="history" id="history"></div>
   </div>
 
+  <div class="card">
+    <h2>Sauvegarde</h2>
+    <p class="sub">Tes données restent sur ce téléphone. Un fichier de sauvegarde te permet de tout retrouver si le navigateur est vidé.</p>
+    <div class="backupRow">
+      <button class="backupBtn" id="btnExportJson">💾 Sauvegarder (JSON)</button>
+      <button class="backupBtn" id="btnImportJson">📥 Restaurer</button>
+      <button class="backupBtn full" id="btnExportCsv">📊 Exporter le journal (CSV, pour Sheets)</button>
+    </div>
+    <input type="file" id="importFile" accept=".json,application/json" style="display:none;">
+    <p class="sub" id="backupInfo"></p>
+
+    <div class="syncBox">
+      <h3>☁️ Sauvegarde automatique (Google Sheets)</h3>
+      <p class="sub" id="syncStatus"></p>
+      <div class="backupRow">
+        <button class="backupBtn" id="btnSyncNow">🔄 Envoyer maintenant</button>
+        <button class="backupBtn" id="btnSyncRestore">☁️ Restaurer</button>
+      </div>
+      <details id="syncSetup">
+        <summary>⚙️ Configurer (une seule fois)</summary>
+        <ol>
+          <li>Sur Google Sheets, crée un tableur vide (nom au choix, ex. « Milo »).</li>
+          <li>Menu <b>Extensions → Apps Script</b>. Efface tout le code, puis colle celui-ci :</li>
+        </ol>
+        <button class="backupBtn full" id="btnCopyGs" style="width:100%;">📋 Copier le script</button>
+        <ol start="3">
+          <li>Clique <b>Déployer → Nouveau déploiement</b>, type « Application Web ». <i>Exécuter en tant que</i> : <b>Moi</b>. <i>Qui a accès</i> : <b>Tout le monde</b>. Déployer, puis autoriser (Avancé → Accéder à…).</li>
+          <li>Copie l’URL qui finit par <b>/exec</b> et colle-la ici :</li>
+        </ol>
+        <input type="url" id="syncUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+        <button class="backupBtn full" id="btnSyncSave" style="width:100%;">✅ Enregistrer &amp; tester</button>
+        <p class="sub" style="margin-top:10px;">Cette URL est ta clé : ne la partage pas, et garde-la dans tes notes (il faudra la remettre si le navigateur est vidé).</p>
+        <button class="backupBtn full" id="btnSyncOff" style="width:100%; display:none;">Désactiver la synchro</button>
+      </details>
+    </div>
+    <script type="text/plain" id="gsCode">// Milo - sauvegarde automatique dans ce Google Sheet
+var CH = 40000;
+var KEEP_DAYS = 30;
+
+function sh_(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(name) || ss.insertSheet(name);
+}
+function out_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+function readData_() {
+  var s = sh_('Milo_data');
+  var n = s.getLastRow();
+  if (n < 2) return { data: null, savedAt: null };
+  var savedAt = String(s.getRange(1, 1).getValue());
+  var vals = s.getRange(2, 1, n - 1, 1).getValues();
+  var txt = vals.map(function (r) { return r[0]; }).join('');
+  try { return { data: JSON.parse(txt), savedAt: savedAt }; }
+  catch (e) { return { data: null, savedAt: savedAt }; }
+}
+function chunks_(txt) {
+  var rows = [];
+  for (var i = 0; i < txt.length; i += CH) rows.push([txt.substr(i, CH)]);
+  return rows;
+}
+function writeData_(data) {
+  var s = sh_('Milo_data');
+  var rows = chunks_(JSON.stringify(data));
+  s.clearContents();
+  s.getRange(1, 1).setValue(new Date().toISOString());
+  s.getRange(2, 1, rows.length, 1).setValues(rows);
+}
+function archive_(old) {
+  if (!old.data) return;
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var s = sh_('Archives');
+  var n = s.getLastRow();
+  if (n >= 1) {
+    var days = s.getRange(1, 1, n, 1).getValues();
+    for (var i = 0; i < days.length; i++) if (String(days[i][0]) === today) return;
+  }
+  var row = [today].concat(chunks_(JSON.stringify(old.data)).map(function (r) { return r[0]; }));
+  s.appendRow(row);
+  var total = s.getLastRow();
+  if (total > KEEP_DAYS) s.deleteRows(1, total - KEEP_DAYS);
+}
+function writeJournal_(data) {
+  var s = sh_('Journal');
+  var labels = { tetee: 'Tétée', biberon: 'Biberon', pipi: 'Pipi', caca: 'Caca', reveil: 'Réveil seul', vitd: 'Vitamine D' };
+  var tz = Session.getScriptTimeZone();
+  var rows = (data.journal || []).slice().sort(function (a, b) { return new Date(a.at) - new Date(b.at); }).map(function (e) {
+    var d = new Date(e.at);
+    return [Utilities.formatDate(d, tz, 'yyyy-MM-dd'), Utilities.formatDate(d, tz, 'HH:mm'), labels[e.type] || e.type, e.ml || '', e.minutes || ''];
+  });
+  s.clearContents();
+  s.getRange(1, 1, 1, 5).setValues([['date', 'heure', 'type', 'ml', 'minutes']]);
+  if (rows.length) {
+    s.getRange(2, 1, rows.length, 5).setNumberFormat('@');
+    s.getRange(2, 1, rows.length, 5).setValues(rows);
+  }
+  var m = sh_('Repas');
+  var meals = data.meals || {};
+  var mrows = Object.keys(meals).sort().map(function (k) { return [k, meals[k]]; });
+  m.clearContents();
+  m.getRange(1, 1, 1, 2).setValues([['date', 'repas']]);
+  if (mrows.length) { m.getRange(2, 1, mrows.length, 2).setNumberFormat('@'); m.getRange(2, 1, mrows.length, 2).setValues(mrows); }
+  var w = sh_('Mesures');
+  var mes = (data.entries || []).slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+    .map(function (e) { return [e.date, e.weight || '', e.height || '', e.head || '']; });
+  w.clearContents();
+  w.getRange(1, 1, 1, 4).setValues([['date', 'poids_kg', 'taille_cm', 'perimetre_cranien_cm']]);
+  if (mes.length) { w.getRange(2, 1, mes.length, 4).setNumberFormat('@'); w.getRange(2, 1, mes.length, 4).setValues(mes); }
+}
+function stats_(d) {
+  var data = d.data;
+  return {
+    journal: data ? (data.journal || []).length : 0,
+    entries: data ? (data.entries || []).length : 0,
+    savedAt: d.savedAt
+  };
+}
+function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || 'ping';
+  var d = readData_();
+  if (action === 'get') return out_({ ok: true, data: d.data, savedAt: d.savedAt });
+  var st = stats_(d); st.ok = true;
+  return out_(st);
+}
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var data = JSON.parse(e.postData.contents);
+    if (!data || data.app !== 'milo' || !Array.isArray(data.journal) || !Array.isArray(data.entries)) {
+      return out_({ ok: false, error: 'format' });
+    }
+    var old = readData_();
+    var oldN = old.data ? (old.data.journal || []).length : 0;
+    // Garde-fou : un téléphone vidé ne doit jamais écraser une sauvegarde bien remplie
+    if (oldN >= 10 && data.journal.length < oldN * 0.5) {
+      return out_({ ok: false, error: 'shrink' });
+    }
+    archive_(old);
+    writeData_(data);
+    writeJournal_(data);
+    return out_({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+</script>
+  </div>
+
   <footer>
-    Données stockées uniquement sur ce téléphone.<br>
+    Données stockées sur ce téléphone (et copiées dans ton Google Sheet si la synchro est activée).<br>
     Courbes de référence indicatives (normes OMS/ONE) — pour un suivi médical, réfère-toi au carnet de santé de Milo.
   </footer>
 </div>
@@ -459,6 +629,7 @@ function loadEntries(){
 }
 function saveEntries(entries){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  scheduleSync();
 }
 let entries = loadEntries();
 if (entries.length === 0){
@@ -614,6 +785,7 @@ function makeChart(canvasId, refData, entryKey, color, withZoom){
 let weightChart, heightChart, headChart, modalChart;
 
 function renderCharts(){
+  if (typeof Chart === 'undefined') return; // librairie non chargée (hors-ligne) : on n'empêche pas le reste de l'appli de fonctionner
   if (weightChart) weightChart.destroy();
   if (heightChart) heightChart.destroy();
   if (headChart) headChart.destroy();
@@ -626,6 +798,7 @@ function renderCharts(){
 const chartModal = document.getElementById('chartModal');
 
 function openChartModal(refData, entryKey, color, title){
+  if (typeof Chart === 'undefined'){ showToast('Graphiques indisponibles hors connexion'); return; }
   document.getElementById('modalTitle').textContent = title;
   chartModal.classList.add('open');
   if (modalChart) modalChart.destroy();
@@ -659,6 +832,7 @@ function loadJournal(){
 }
 function saveJournal(log){
   localStorage.setItem(JOURNAL_KEY, JSON.stringify(log));
+  scheduleSync();
 }
 let journal = loadJournal();
 
@@ -672,6 +846,7 @@ function loadMeals(){
 }
 function saveMeals(m){
   localStorage.setItem(MEALS_KEY, JSON.stringify(m));
+  scheduleSync();
 }
 let meals = loadMeals();
 
@@ -1048,6 +1223,280 @@ document.getElementById('entryForm').addEventListener('submit', function(ev){
   renderAll();
 });
 
+/* ---------- Sauvegarde / restauration ---------- */
+const LAST_BACKUP_KEY = 'milo_last_backup';
+
+function downloadFile(filename, content, mime){
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function todayStamp(){ return dateKey(new Date()); }
+
+function renderBackupInfo(){
+  const el = document.getElementById('backupInfo');
+  let last = null;
+  try { last = localStorage.getItem(LAST_BACKUP_KEY); } catch(e){}
+  if (!last){
+    el.textContent = 'Aucune sauvegarde faite pour l’instant.';
+    el.classList.add('warn');
+    return;
+  }
+  const days = Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
+  const d = new Date(last);
+  el.textContent = 'Dernière sauvegarde : ' + pad(d.getDate()) + '/' + pad(d.getMonth()+1) + ' à ' + timeFmt(d)
+    + (days >= 7 ? ' — pense à en refaire une.' : '.');
+  el.classList.toggle('warn', days >= 7);
+}
+
+document.getElementById('btnExportJson').addEventListener('click', () => {
+  const data = buildBackup();
+  downloadFile('milo-sauvegarde-' + todayStamp() + '.json', JSON.stringify(data, null, 2), 'application/json');
+  try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch(e){}
+  renderBackupInfo();
+  showToast('Sauvegarde téléchargée');
+});
+
+function csvCell(v){
+  const s = (v === null || v === undefined) ? '' : String(v);
+  return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+document.getElementById('btnExportCsv').addEventListener('click', () => {
+  const labels = { tetee:'Tétée', biberon:'Biberon', pipi:'Pipi', caca:'Caca', reveil:'Réveil seul', vitd:'Vitamine D' };
+  const rows = [['date','heure','type','ml','minutes']];
+  [...journal].sort((a,b) => new Date(a.at) - new Date(b.at)).forEach(e => {
+    const d = new Date(e.at);
+    rows.push([dateKey(d), pad(d.getHours()) + ':' + pad(d.getMinutes()), labels[e.type] || e.type, e.ml, e.minutes]);
+  });
+  const rows2 = [['date','poids_kg','taille_cm','perimetre_cranien_cm']];
+  [...entries].sort((a,b) => a.date.localeCompare(b.date)).forEach(e => rows2.push([e.date, e.weight, e.height, e.head]));
+  const rows3 = [['date','repas']];
+  Object.keys(meals).sort().forEach(k => rows3.push([k, meals[k]]));
+  const toCsv = (r) => r.map(line => line.map(csvCell).join(',')).join('\n');
+  const content = '﻿' + toCsv(rows) + '\n\n' + toCsv(rows2) + '\n\n' + toCsv(rows3);
+  downloadFile('milo-journal-' + todayStamp() + '.csv', content, 'text/csv;charset=utf-8');
+  showToast('CSV téléchargé');
+});
+
+function isValidBackup(data){
+  return !!(data && data.app === 'milo' && Array.isArray(data.journal) && Array.isArray(data.entries));
+}
+// Fusion : on AJOUTE ce qui manque, on ne supprime ni n'écrase rien.
+function mergeBackup(data, silent, label){
+  if (!isValidBackup(data)){
+    alert('Ce fichier n’est pas une sauvegarde de l’appli Milo.'); return false;
+  }
+  const haveJ = new Set(journal.map(e => String(e.id)));
+  const newJ = data.journal.filter(e => e && e.id !== undefined && !haveJ.has(String(e.id)));
+  const haveE = new Set(entries.map(e => String(e.id)));
+  const newE = data.entries.filter(e => e && e.id !== undefined && !haveE.has(String(e.id)));
+  const importedMeals = data.meals && typeof data.meals === 'object' ? data.meals : {};
+  let mealsChanged = 0;
+  Object.keys(importedMeals).forEach(k => { if ((importedMeals[k] || 0) > (meals[k] || 0)) mealsChanged++; });
+
+  if (!silent && !confirm((label || 'Restaurer la sauvegarde ?') + '\n\n+ ' + newJ.length + ' entrées de journal\n+ ' + newE.length + ' mesures\n+ ' + mealsChanged + ' jours de compteur repas\n\nRien de ce qui existe déjà ne sera supprimé.')) return false;
+
+  journal = journal.concat(newJ);
+  entries = entries.concat(newE);
+  Object.keys(importedMeals).forEach(k => { meals[k] = Math.max(meals[k] || 0, importedMeals[k] || 0); });
+  saveJournal(journal); saveEntries(entries); saveMeals(meals);
+  if (data.weanRatio !== undefined && getWeanRatio() === 0) {
+    setWeanRatio(data.weanRatio);
+    document.getElementById('weanRatio').value = String(getWeanRatio());
+  }
+  renderAll(); renderMealCount();
+  showToast('Sauvegarde restaurée');
+  return true;
+}
+function buildBackup(){
+  return { app: 'milo', version: 1, exportedAt: new Date().toISOString(), entries, journal, meals, weanRatio: getWeanRatio() };
+}
+
+document.getElementById('btnImportJson').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try { data = JSON.parse(reader.result); } catch(e){ alert('Fichier illisible : ce n’est pas une sauvegarde valide.'); return; }
+    mergeBackup(data, false);
+  };
+  reader.readAsText(file);
+});
+
+// Demande au navigateur de ne pas effacer ces données automatiquement
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+}
+
+/* ---------- Sauvegarde automatique Google Sheets ---------- */
+var SYNC_URL_KEY = 'milo_sync_url';
+var SYNC_OK_KEY = 'milo_sync_ok';
+var SYNC_DIRTY_KEY = 'milo_sync_dirty';
+var syncTimer = null, syncBusy = false, syncError = '';
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+function getSyncUrl(){ return (lsGet(SYNC_URL_KEY) || '').trim(); }
+
+function scheduleSync(){
+  if (!getSyncUrl()) return;
+  lsSet(SYNC_DIRTY_KEY, '1');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => { syncNow(true); }, 4000);
+  renderSyncInfo();
+}
+
+function renderSyncInfo(){
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  const url = getSyncUrl();
+  document.getElementById('btnSyncOff').style.display = url ? '' : 'none';
+  document.getElementById('btnSyncNow').disabled = !url;
+  document.getElementById('btnSyncRestore').disabled = !url;
+  el.classList.remove('ok', 'warn');
+  if (!url){
+    el.textContent = 'Pas encore activée : configure-la une fois et tout sera envoyé tout seul vers ton Google Sheet.';
+    return;
+  }
+  const last = lsGet(SYNC_OK_KEY);
+  const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
+  let when = '';
+  if (last){
+    const d = new Date(last);
+    when = pad(d.getDate()) + '/' + pad(d.getMonth()+1) + ' à ' + timeFmt(d);
+  }
+  if (syncBusy){ el.textContent = 'Envoi en cours…'; }
+  else if (syncError){ el.textContent = syncError + (when ? ' (dernier envoi réussi : ' + when + ')' : ''); el.classList.add('warn'); }
+  else if (dirty){ el.textContent = 'Modifications en attente d’envoi' + (when ? ' (dernier envoi : ' + when + ')' : '') + '.'; }
+  else if (last){ el.textContent = 'Synchronisé le ' + when + ' ✓'; el.classList.add('ok'); }
+  else { el.textContent = 'Activée, aucun envoi pour l’instant.'; }
+}
+
+async function remotePing(url){
+  const r = await fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=ping&t=' + Date.now());
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error('réponse invalide');
+  return j;
+}
+
+// Renvoie true si l'envoi est confirmé par le Sheet
+async function syncNow(silent){
+  const url = getSyncUrl();
+  if (!url || syncBusy) return false;
+  if (navigator.onLine === false){ syncError = 'Hors connexion : envoi dès le retour du réseau.'; renderSyncInfo(); return false; }
+  syncBusy = true; syncError = ''; renderSyncInfo();
+  let ok = false;
+  try {
+    const body = JSON.stringify(buildBackup());
+    await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body });
+    const j = await remotePing(url);
+    if (j.journal === journal.length && j.entries === entries.length){
+      ok = true;
+      lsSet(SYNC_OK_KEY, new Date().toISOString());
+      try { localStorage.removeItem(SYNC_DIRTY_KEY); } catch(e){}
+      lsSet(LAST_BACKUP_KEY, new Date().toISOString());
+      renderBackupInfo();
+    } else if (j.journal > journal.length){
+      syncError = 'Le Sheet contient plus de données que ce téléphone (' + j.journal + ' vs ' + journal.length + ') : envoi bloqué par sécurité. Appuie sur « Restaurer » pour les récupérer.';
+    } else {
+      syncError = 'Envoi non confirmé (' + j.journal + ' entrées dans le Sheet pour ' + journal.length + ' ici). Vérifie le déploiement du script.';
+    }
+  } catch(e){
+    syncError = 'Envoi impossible pour l’instant (réseau ou URL). Nouvel essai à la prochaine modification.';
+  }
+  syncBusy = false;
+  renderSyncInfo();
+  if (!silent) showToast(ok ? 'Envoyé vers Google Sheets ✓' : 'Envoi non confirmé');
+  return ok;
+}
+
+async function restoreFromGoogle(silent){
+  const url = getSyncUrl();
+  if (!url) return false;
+  try {
+    const r = await fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=get&t=' + Date.now());
+    const j = await r.json();
+    if (!j || !j.ok || !j.data){ if (!silent) alert('Aucune sauvegarde trouvée dans le Sheet.'); return false; }
+    return mergeBackup(j.data, false, 'Récupérer la sauvegarde Google Sheets ?');
+  } catch(e){
+    if (!silent) alert('Impossible de joindre le Sheet. Vérifie ta connexion et l’URL.');
+    return false;
+  }
+}
+
+function localIsEmpty(){
+  return journal.length === 0 && entries.length <= 1 && Object.keys(meals).length === 0;
+}
+
+// À l'ouverture : si ce téléphone est vide mais que le Sheet contient des données, on propose de restaurer AVANT tout envoi.
+async function syncStartup(){
+  const url = getSyncUrl();
+  if (!url) return;
+  if (localIsEmpty()){
+    try {
+      const j = await remotePing(url);
+      if (j.journal > 0 || j.entries > 1){
+        await restoreFromGoogle(true);
+      }
+    } catch(e){}
+  }
+  const last = lsGet(SYNC_OK_KEY);
+  const stale = !last || (Date.now() - new Date(last).getTime()) > 6 * 3600 * 1000;
+  if (lsGet(SYNC_DIRTY_KEY) === '1' || stale) syncNow(true);
+}
+
+document.getElementById('btnSyncNow').addEventListener('click', () => { syncNow(false); });
+document.getElementById('btnSyncRestore').addEventListener('click', () => { restoreFromGoogle(false); });
+document.getElementById('btnCopyGs').addEventListener('click', async () => {
+  const code = document.getElementById('gsCode').textContent.replace(/^\n/, '');
+  try { await navigator.clipboard.writeText(code); showToast('Script copié'); }
+  catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = code; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let done = false; try { done = document.execCommand('copy'); } catch(e2){}
+    ta.remove();
+    showToast(done ? 'Script copié' : 'Copie impossible');
+  }
+});
+document.getElementById('btnSyncSave').addEventListener('click', async () => {
+  const v = document.getElementById('syncUrl').value.trim();
+  if (!/^https:\/\/script\.google(usercontent)?\.com\/.+/.test(v)){
+    alert('L’URL doit commencer par https://script.google.com/ et finir par /exec'); return;
+  }
+  try {
+    const j = await remotePing(v);
+    lsSet(SYNC_URL_KEY, v);
+    document.getElementById('syncUrl').value = '';
+    if (j.journal > 0 && localIsEmpty()){
+      await restoreFromGoogle(false);
+    }
+    const ok = await syncNow(false);
+    if (ok) document.getElementById('syncSetup').open = false;
+  } catch(e){
+    alert('Le script ne répond pas. Vérifie : déploiement en « Application Web », accès « Tout le monde », et URL finissant par /exec.');
+  }
+  renderSyncInfo();
+});
+document.getElementById('btnSyncOff').addEventListener('click', () => {
+  if (!confirm('Désactiver la synchro ? Tes données du Sheet restent en place.')) return;
+  try { localStorage.removeItem(SYNC_URL_KEY); localStorage.removeItem(SYNC_DIRTY_KEY); } catch(e){}
+  syncError = ''; renderSyncInfo();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && getSyncUrl()){
+    const last = lsGet(SYNC_OK_KEY);
+    if (lsGet(SYNC_DIRTY_KEY) === '1' || !last || Date.now() - new Date(last).getTime() > 3 * 3600 * 1000) syncNow(true);
+  }
+});
+window.addEventListener('online', () => { if (lsGet(SYNC_DIRTY_KEY) === '1') syncNow(true); });
+setInterval(() => { if (getSyncUrl() && lsGet(SYNC_DIRTY_KEY) === '1' && !syncBusy) syncNow(true); }, 10 * 60 * 1000);
+
 /* ---------- Init ---------- */
 function renderAll(){
   renderAge();
@@ -1061,6 +1510,9 @@ document.getElementById('logTime').value = currentTimeValue();
 document.getElementById('weanRatio').value = String(getWeanRatio());
 renderAll();
 renderMealCount();
+renderBackupInfo();
+renderSyncInfo();
+syncStartup();
 setInterval(() => {
   renderAge();
   renderLastFeeds();
