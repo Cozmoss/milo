@@ -526,6 +526,34 @@ function writeJournal_(data) {
   w.getRange(1, 1, 1, 4).setValues([['date', 'poids_kg', 'taille_cm', 'perimetre_cranien_cm']]);
   if (mes.length) { w.getRange(2, 1, mes.length, 4).setNumberFormat('@'); w.getRange(2, 1, mes.length, 4).setValues(mes); }
 }
+function writeRecap_(data) {
+  var tz = Session.getScriptTimeZone();
+  var days = {};
+  function get(k) {
+    if (!days[k]) days[k] = { tetee: 0, min: 0, bib: 0, ml: 0, pipi: 0, caca: 0, reveil: 0, vitd: 0 };
+    return days[k];
+  }
+  (data.journal || []).forEach(function (e) {
+    var d = get(Utilities.formatDate(new Date(e.at), tz, 'yyyy-MM-dd'));
+    if (e.type === 'tetee') { d.tetee++; d.min += e.minutes || 0; }
+    else if (e.type === 'biberon') { d.bib++; d.ml += e.ml || 0; }
+    else if (e.type === 'pipi') d.pipi++;
+    else if (e.type === 'caca') d.caca++;
+    else if (e.type === 'reveil') d.reveil++;
+    else if (e.type === 'vitd') d.vitd++;
+  });
+  var meals = data.meals || {};
+  Object.keys(meals).forEach(function (k) { get(k); });
+  var rows = Object.keys(days).sort().reverse().map(function (k) {
+    var d = days[k];
+    return [k, d.tetee, d.min, d.bib, d.ml, d.pipi, d.caca, d.reveil, meals[k] || 0, d.vitd > 0 ? 'Oui' : 'Non'];
+  });
+  var s = sh_('Récap');
+  s.clearContents();
+  s.getRange(1, 1, 1, 10).setValues([['Jour', 'Tétées', 'Minutes tétée', 'Biberons', 'ml biberons', 'Pipi', 'Caca', 'Réveil seul', 'Repas', 'Vitamine D']]);
+  if (rows.length) s.getRange(2, 1, rows.length, 10).setValues(rows);
+  s.setFrozenRows(1);
+}
 function stats_(d) {
   var data = d.data;
   return {
@@ -558,6 +586,7 @@ function doPost(e) {
     archive_(old);
     writeData_(data);
     writeJournal_(data);
+    writeRecap_(data);
     return out_({ ok: true });
   } finally {
     lock.releaseLock();
@@ -673,8 +702,15 @@ function ageWordsFR(){
 function renderAge(){
   document.getElementById('jxNum').textContent = daysSinceBirth();
   const m = monthsSinceBirth();
-  document.getElementById('ageMonths').textContent = m + (m === 1 ? ' mois' : ' mois');
-  document.getElementById('ageWords').textContent = ageWordsFR();
+  const now = new Date();
+  const anniv = new Date(BIRTH.getFullYear(), BIRTH.getMonth() + m, BIRTH.getDate());
+  const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const extraDays = Math.max(0, Math.round((today0 - anniv) / 86400000));
+  let precise = m + ' mois';
+  if (m === 0) precise = extraDays + (extraDays > 1 ? ' jours' : ' jour');
+  else if (extraDays > 0) precise += ' et ' + extraDays + (extraDays > 1 ? ' jours' : ' jour');
+  document.getElementById('ageMonths').textContent = precise;
+  document.getElementById('ageWords').textContent = m >= 12 ? ageWordsFR() : 'Moins d’1 an';
 }
 
 /* ---------- Historique ---------- */
